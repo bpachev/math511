@@ -35,6 +35,29 @@ ani = animation.FuncAnimation(
 
 plt.show()"""
 
+def plot_mode(n=1, L=1):
+	x = np.linspace(0,L,100)
+	f_init = np.sin(n*np.pi*x/L)
+	fig, ax = plt.subplots()
+	line, = ax.plot(x, f_init)
+	ax.set_ylim(-1.3,1.3)
+
+	def init():  # only required for blitting to give a clean slate.
+		line.set_ydata([np.nan] * len(x))
+		return line,
+	
+	def animate(i):
+		t = i/100.
+		line.set_ydata(np.cos(n*np.pi*t/L)*f_init)  # update the data.
+		return line,
+
+
+	ani = animation.FuncAnimation(fig, animate, init_func=init, frames=300, interval=30, repeat=False, blit=True, save_count=50)
+	plt.title("Animation of mode {}".format(n))
+	plt.show()
+	
+
+
 def plot_wave(num_terms, L=30):
 	x = np.linspace(0,L,100)
 	n = np.arange(1,num_terms+1)
@@ -60,9 +83,12 @@ def plot_wave(num_terms, L=30):
 
 
 	ani = animation.FuncAnimation(fig, animate, init_func=init, frames=600, interval=30, repeat=False, blit=True, save_count=50)
+	plt.title("It's a string!")
 	plt.show()
 
 if __name__ == "__main__":
 	#Do animations
+	for n in range(1,4):
+		plot_mode(n)
 	plot_wave(30)
-	pass
+
