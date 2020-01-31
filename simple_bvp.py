@@ -68,24 +68,57 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 		diag_num = k - half_order
 		start, stop = (0,dim) if not diag_num else ((-diag_num, dim) if diag_num < 0 else (0, -diag_num))
 		ab[u+diag_num,start:stop] = center_coeffs[k]
-#	print ab
+
+	for i, coeffs in enumerate(left_coeffs):
+		for k in range(len(coeffs)):
+			diag_num = i-k+1 #If k=0 and i=0, it should be 1. If k increases, it decreases by 1. If i increases it increases by 1
+			#If we have Dirichlet bc's, we should affect row i, column i + diag_num
+			#If they are Nuemann, the row is i+1 as the first row has the approximation of u' at the boundary
+			#So actually, in the case of Dirichelt BC's, the first coefficient always needs to be moved over to the right-hand side
+			#because it is the coefficient by the constant term u(a)
+			row = i + alpha_n
+			j = row - diag_num
+			if j < 0: continue
+			ab[u+diag_num, j] = coeffs[k]
+
+	for i, coeffs in enumerate(right_coeffs):
+		for k in range(len(coeffs)):
+			diag_num = -k-i+order #If i or k increases, the diagonal number goes down, and if both are 0 it should be order
+			#If we have a Dirichlet about x=b, this will affect row dim-1-i
+			#If they are Neumann, the affected row will be dim-2-i, as the last row will be for u'(b)
+			row = dim - i - 1 - beta_n
+			j = row - diag_num
+			if j >= dim: continue
+			ab[u+diag_num, j] = coeffs[k]
+
 	dom = np.linspace(a,b,n+1)
 	h = (b-a) / float(n)
 	b = f(dom[1:-1]) * h**2
 	if not alpha_n:
 		#Figure out the coefficient by u(a) in the FD approximation for u''(a+h)
-		if len(left_coeffs): coeff = left_coeffs[0][0]
-		else: coeff = center_coeffs[0]
-		b[0] -= coeff * alpha[1]
+		i = 0
+		while i < len(left_coeffs):
+			b[i] -= alpha[1]*left_coeffs[i][0]
+			i += 1
+		b[i] -= center_coeffs[0] * alpha[1]
 	if not beta_n:
 		#Figure out the coefficient by u(b) in the FD approximation for u''(b-h)
-		if len(right_coeffs): coeff = right_coeffs[-1][-1]
-		else: coeff = center_coeffs[-1]
-		b[-1] -= coeff * beta[1]
+		i = 0
+		while i < len(right_coeffs):
+			b[-1-i] -= beta[1]*right_coeffs[i][-1]
+			i += 1
+		b[-1-i] -= center_coeffs[-1] * beta[1]
 	sol = solve_banded([l,u],ab,b)
 	res[(1-alpha_n):dim+1-alpha_n] = sol
-	return res
+	return dom, res
+
+import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
-	f = lambda x: 2 + 0*x
-	print(bvp(f, order=2))
+	f = lambda x: -np.sin(x)
+	for order in range(2,8,2):
+		dom, res = bvp(f, order=order, a=0, b=np.pi/2)
+		plt.plot(dom, res, label="Order {}".format(order))
+		print np.max(np.abs(np.sin(dom)-res)),order
+	plt.legend()
+	plt.show()
