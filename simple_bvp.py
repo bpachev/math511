@@ -27,7 +27,6 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 	center_coeffs = fd.FDStencil(2, np.arange(-half_order, half_order+1), verbose=False)
 	left_coeffs = []
 	right_coeffs = []
-	print(center_coeffs)
 	res = np.zeros(n+1)
 	if alpha[0] == 'N':
 		#we need to add an equation at the left, as u(a) is unknown
@@ -49,17 +48,18 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 	for i in range(1,half_order):
 		left_coeffs.append(fd.FDStencil(2, np.arange(-i, order+2-i), verbose=False))
 		right_coeffs.append(fd.FDStencil(2, np.arange(-order-1+i, i+1), verbose=False))
-	print(left_coeffs, right_coeffs)
 	
 	#Now we need to construct the banded matrix
 	#The most lopsided an approximation could get is (a) a one-sided finite difference approximation of u' at an endpoint
 	# or an approximation of u'' at an interior point immediately adjacent to the boundary. In both cases the number of points on one side
 	# (and hence nonzero diagonals) is order, except for the very special case when order=2
-	if order == 2: l = u = 1
+	if order == 2:
+		l = u = 1
+		if beta_order > 1: l = beta_order
+		if alpha_order > 1: u = alpha_order
 	else: l = u = order
 
 	dim = n - 1 + alpha_n + beta_n
-	print(dim,l,u)
 	#Store diagonals
 	ab = np.zeros((l+u+1,dim))
 	#Start with the center coefficients - the bulk of the system
@@ -93,7 +93,8 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 
 	dom = np.linspace(a,b,n+1)
 	h = (b-a) / float(n)
-	b = f(dom[1:-1]) * h**2
+	b = np.zeros(dim)
+	b[alpha_n:dim-beta_n] = f(dom[1:-1]) * h**2
 	if not alpha_n:
 		#Figure out the coefficient by u(a) in the FD approximation for u''(a+h)
 		i = 0
@@ -101,6 +102,13 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 			b[i] -= alpha[1]*left_coeffs[i][0]
 			i += 1
 		b[i] -= center_coeffs[0] * alpha[1]
+	else:
+		coeffs = fd.FDStencil(1, np.arange(0, alpha_order+1), verbose=False)
+		row = 0
+		for k, c in enumerate(coeffs):
+			col = k
+			ab[u+row-col,col] = c
+		b[0] = alpha[1]*h
 	if not beta_n:
 		#Figure out the coefficient by u(b) in the FD approximation for u''(b-h)
 		i = 0
@@ -108,6 +116,13 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 			b[-1-i] -= beta[1]*right_coeffs[i][-1]
 			i += 1
 		b[-1-i] -= center_coeffs[-1] * beta[1]
+	else:
+		coeffs = fd.FDStencil(1, np.arange(-beta_order, 1), verbose=False)
+		b[-1] = beta[1]*h
+		row = dim-1
+		for k, c in enumerate(coeffs[::-1]):
+			col = dim-1-k
+			ab[u+row-col, col] = c
 	sol = solve_banded([l,u],ab,b)
 	res[(1-alpha_n):dim+1-alpha_n] = sol
 	return dom, res
@@ -116,8 +131,8 @@ import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
 	f = lambda x: -np.sin(x)
-	for order in range(2,8,2):
-		dom, res = bvp(f, order=order, a=0, b=np.pi/2)
+	for order in range(2,10,2):
+		dom, res = bvp(f, order=order, a=0, b=np.pi/2, beta=('N',0))
 		plt.plot(dom, res, label="Order {}".format(order))
 		print np.max(np.abs(np.sin(dom)-res)),order
 	plt.legend()
