@@ -4,7 +4,7 @@ import fdutil as fd
 #from scipy.sparse import spdiags
 from scipy.linalg import solve_banded
 
-def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=None, beta_order=None):
+def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=None, beta_order=None, central=False):
 	"""
 	A bvp solver for the BVP u'' = f(x).
 	Parameters:
@@ -18,6 +18,7 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 	n - the number of subintervals
 	alpha_order - the order of finite difference approximation to use for u'(a) if a Neumann boundary condition was used at x=a
 	beta_order - same as alpha_order, but at x=b
+	central - whether to use a centered difference for computing the Neumann boundary condition. Only valid for second-order
 	Returns:
 	x - the approximated solution
 	"""
@@ -44,7 +45,7 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 	else:
 		beta_n = 0
 		res[-1] = beta[1]
-
+	#Here we generate the coefficients for the points close to the boundary where we can't use a centered formula
 	for i in range(1,half_order):
 		left_coeffs.append(fd.FDStencil(2, np.arange(-i, order+2-i), verbose=False))
 		right_coeffs.append(fd.FDStencil(2, np.arange(-order-1+i, i+1), verbose=False))
@@ -53,6 +54,7 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 	#The most lopsided an approximation could get is (a) a one-sided finite difference approximation of u' at an endpoint
 	# or an approximation of u'' at an interior point immediately adjacent to the boundary. In both cases the number of points on one side
 	# (and hence nonzero diagonals) is order, except for the very special case when order=2
+	#l and u are number of lower and upper diagonals in the banded matrix
 	if order == 2:
 		l = u = 1
 		if beta_order > 1: l = beta_order
@@ -60,7 +62,7 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 	else: l = u = order
 
 	dim = n - 1 + alpha_n + beta_n
-	#Store diagonals
+	#Store diagonals of the matrix A, so we can use Scipy to efficiently solve the system
 	ab = np.zeros((l+u+1,dim))
 	#Start with the center coefficients - the bulk of the system
 	for k in range(len(center_coeffs)):
@@ -91,6 +93,7 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 			if j >= dim: continue
 			ab[u+diag_num, j] = coeffs[k]
 
+	#Here we construct the right-hand-side of the system
 	dom = np.linspace(a,b,n+1)
 	h = (b-a) / float(n)
 	b = np.zeros(dim)
@@ -102,6 +105,12 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 			b[i] -= alpha[1]*left_coeffs[i][0]
 			i += 1
 		b[i] -= center_coeffs[0] * alpha[1]
+	elif central:
+		#we have (u_1 - u_-1)/2h = alpha[1] and (u_1-2u_0+u_-1) / h^2 = f(a)
+		# 2*(u_1 - u_0) = h^2f(a) + 2h*alpha[1]
+		b[0] = h**2 * f(dom[0]) + 2*h*alpha[1]
+		ab[u,0] = 2
+		ab[u-1,1] = 2
 	else:
 		coeffs = fd.FDStencil(1, np.arange(0, alpha_order+1), verbose=False)
 		row = 0
@@ -116,6 +125,12 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 			b[-1-i] -= beta[1]*right_coeffs[i][-1]
 			i += 1
 		b[-1-i] -= center_coeffs[-1] * beta[1]
+	elif central:
+		#we have (u_n+1 - u_n-1)/2h = beta[1] and (u_n+1-2u_n+u_n-1) / h^2 = f(b)
+		# 2*(u_n-1 - u_n) = h^2f(b) - 2h*beta[1]
+		b[-1] = h**2 * f(dom[-1]) - 2*h*beta[1]
+		ab[u,-1] = -2
+		ab[u+1,-2] = 2
 	else:
 		coeffs = fd.FDStencil(1, np.arange(-beta_order, 1), verbose=False)
 		b[-1] = beta[1]*h
@@ -123,17 +138,89 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 		for k, c in enumerate(coeffs[::-1]):
 			col = dim-1-k
 			ab[u+row-col, col] = c
+	#Here we use Scipy's specialized solver for banded systems - this is faster than a generic sparse solver
+	#It does cause some indexing headaches, but is well worth it in terms of speed
 	sol = solve_banded([l,u],ab,b)
 	res[(1-alpha_n):dim+1-alpha_n] = sol
 	return dom, res
 
+def plot_table(cell_text, cols, title=""):
+	fig, ax = plt.subplots()
+	ax.axis('off')
+	ax.axis('tight')
+	ax.xaxis.set_visible(False) 
+	ax.yaxis.set_visible(False)
+	plt.title(title)
+	plt.table(cellText = cell_text, colLabels=cols, loc='center')
+	plt.show()
+
+
 import matplotlib.pyplot as plt
 
+def l2_norm(dom, y):
+	heights = (y[1:]**2+y[:-1]**2)/2.
+	return np.sqrt(np.dot(heights, np.diff(dom)))
+
+def make_cell_text(vals):
+	return [["{:.4e}".format(v[i]) for v in vals] for i in range(len(vals[0]))]
+
 if __name__ == "__main__":
-	f = lambda x: -np.sin(x)
-	for order in range(2,10,2):
-		dom, res = bvp(f, order=order, a=0, b=np.pi/2, beta=('N',0))
-		plt.plot(dom, res, label="Order {}".format(order))
-		print np.max(np.abs(np.sin(dom)-res)),order
-	plt.legend()
-	plt.show()
+	ax, bx = 0, 3
+	sigma, beta = -5, 3
+	f = lambda x: np.exp(x)
+	u = lambda x: np.exp(x) + (beta - np.exp(bx)) * (x-ax) + sigma - np.exp(ax)
+
+	#Problem 2.4 (a)
+	points = [[5,10,20,40],[10,20,40,80],[40,80,120,160]]
+	for i,arr in enumerate(points):
+		hvals = 1./np.array(arr)
+		max1_errs = []
+		max2_errs = []
+		l2_errs1 = []
+		l2_errs2 = []
+		for n in arr:
+			dom, res1 = bvp(f, n=n, a=ax, b=bx, alpha=('D',sigma), beta=('N', beta), order=2, central=True)
+			dom, res2 = bvp(f, n=n, a=ax, b=bx, alpha=('D',sigma), beta=('N', beta), order=2)
+			real = u(dom)
+			max1_errs.append(np.max(np.abs(real-res1)))
+			max2_errs.append(np.max(np.abs(real-res2)))
+			l2_errs1.append(l2_norm(dom, real-res1))
+			l2_errs2.append(l2_norm(dom, real-res2))
+
+		cols = ["h", "central max norm","central l2","one-sided max norm", "one-sided l2"]
+		vals = [hvals, max1_errs, l2_errs1, max2_errs, l2_errs2]
+		text = make_cell_text(vals)
+		plot_table(text, cols, "Experiment (a)({})".format(i+1))
+		if i == len(points)-1:
+			plt.title("L2-error plot")
+			plt.loglog(hvals, l2_errs1, label = "central")
+			plt.loglog(hvals, l2_errs2, label = "one-sided")
+			plt.legend()
+			plt.show()
+	#2.4 (b)
+	points = [[10,20,40,80],[40,80,100,120],[80,100,120,140,160,180,200]]
+	for i,arr in enumerate(points):
+		hvals = 1./np.array(arr)
+		max1_errs = []
+		max2_errs = []
+		l2_errs1 = []
+		l2_errs2 = []
+		for n in arr:
+			dom, res1 = bvp(f, n=n, a=ax, b=bx, alpha=('D',sigma), beta=('N', beta), order=6)
+			dom, res2 = bvp(f, n=n, a=ax, b=bx, alpha=('D',sigma), beta=('N', beta), beta_order=4, order=6)
+			real = u(dom)
+			max1_errs.append(np.max(np.abs(real-res1)))
+			max2_errs.append(np.max(np.abs(real-res2)))
+			l2_errs1.append(l2_norm(dom, real-res1))
+			l2_errs2.append(l2_norm(dom, real-res2))
+
+		cols = ["h", "6-th order max norm","6-order l2","4-th order max norm", "4-th order l2"]
+		vals = [hvals, max1_errs, l2_errs1, max2_errs, l2_errs2]
+		text = make_cell_text(vals)
+		plot_table(text, cols, "Experiment (b)({})".format(i+1))
+		if i == len(points)-1:
+			plt.title("L2-error plot")
+			plt.loglog(hvals, l2_errs1, label = "6-th order")
+			plt.loglog(hvals, l2_errs2, label = "4-th order")
+			plt.legend()
+			plt.show()
