@@ -28,10 +28,24 @@ def make_9_point_diags(n, h):
 	diags[n+1] = diags[-1-n] = off_diag2
 	return diags
 
-def solve_hemholtz(f, boundary_func=lambda x,y: x*y, lap_f=lambda x: None, n=20,xint=(0,1), yint=(0,1), solver='spdiags', scheme='5-point', k=20):
+def solve_hemholtz(f, boundary_func=lambda x,y: x*y, lap_f=lambda x: None, n=20,xint=(0,1), solver='spdiags', scheme='5-point', k=20):
+	h = (xint[1]-xint[0])/float(n+1)
+
+	if scheme == 'deferred':
+		#Get the second-order approximation
+		u_bar = np.zeros((n+2, n+2))
+		u_bar[1:-1,1:-1] = solve_hemholtz(f, boundary_func, lap_f, n, xint,k=k).reshape((n,n))
+		#Fill in the boundary data
+		grid_1d = np.linspace(xint[0], xint[1], n+2)
+		u_bar[0] = boundary_func(xint[0], grid_1d)
+		u_bar[-1] = boundary_func(xint[1], grid_1d)
+		u_bar[:,0] = boundary_func(grid_1d, xint[0])
+		u_bar[:,-1] = boundary_func(grid_1d, xint[1])
+		#Compute the xxyy derivative
+		u_xx = (u_bar[:-2]+u_bar[2:]-2*u_bar[1:-1])/h**2
+		u_xxyy = (u_xx[:,2:]+u_xx[:,:-2]-2*u_xx[:,1:-1])/h**2
 	#First, construct the diagonals and the RHS
 	#Here we assume that the domain is square
-	h = (xint[1]-xint[0])/float(n+1)
 	b = np.zeros((n,n))
 	yvals = np.linspace(xint[0], xint[1], n+2)[1:-1]
 #	print h, yvals[1]-yvals[0]
@@ -40,11 +54,13 @@ def solve_hemholtz(f, boundary_func=lambda x,y: x*y, lap_f=lambda x: None, n=20,
 		b[i] = f(xval, yvals)
 		if scheme == '9-point':
 			b[i] += h**2/12. * (lap_f(xval, yvals) - k**2*f(xval, yvals))
-	if scheme == '5-point':
+		elif scheme == 'deferred':
+			b[i] += h**2/12. * (lap_f(xval, yvals) - k**2*f(xval, yvals) + k**4 * u_bar[i+1,1:-1] - 2*u_xxyy[i] )
+	if scheme == '5-point' or scheme == 'deferred':
 		b *= h**2
 	else: b *= 6*h**2
 #	print b
-	if scheme=='5-point':
+	if scheme=='5-point' or scheme == 'deferred':
 		diags = make_5_point_diags(n, h)
 		diags[0] += h**2 * k**2
 		#Now we need to make use of the boundary conditions
@@ -116,11 +132,11 @@ def plot_sol(sol, grid):
 if __name__ == "__main__":
 	from scipy.special import jve #Bessel function
 	k = 20
-	xpoints = 300
+	xpoints = 200
 	f = lambda x,y: (k**2 -1) * (np.sin(y) + np.cos(x))
 	lap_f = lambda x,y: -f(x,y) 
 	true = lambda x,y: jve(0,k * (x**2+y**2)**.5) + np.sin(y) + np.cos(x)
-	res = solve_hemholtz(f,boundary_func=true, n=xpoints-1, lap_f=lap_f, scheme='9-point', k= k, solver=sla.spsolve)
+	res = solve_hemholtz(f,boundary_func=true, n=xpoints-1, lap_f=lap_f, scheme='deferred', k= k)
 	if len(res) == 2: res = res[0]
 	grid = np.linspace(0,1,xpoints+1)
 	
