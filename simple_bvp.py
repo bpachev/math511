@@ -3,8 +3,9 @@ import fdutil as fd
 #Would be interesting to compare solve_banded and spdiags + spsolve
 #from scipy.sparse import spdiags
 from scipy.linalg import solve_banded
+from scipy.sparse import diags as spdiags
 
-def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=None, beta_order=None, central=False):
+def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=None, beta_order=None, central=False, u_coeff=0, return_system=False):
 	"""
 	A bvp solver for the BVP u'' = f(x).
 	Parameters:
@@ -138,11 +139,27 @@ def bvp(f, n = 20, a=0,b=1,order=2, alpha=('D', 0), beta=('D',1), alpha_order=No
 		for k, c in enumerate(coeffs[::-1]):
 			col = dim-1-k
 			ab[u+row-col, col] = c
+
+	#If both boundary conditions are Neumann, the matrix will be singular and the solver will raise an error
+	#To get things to work, we need to fudge things somehow. The approach I take is to assume u(a) = 0 and add a constant to the
+	# 0-th column of the system 
+	if alpha_n and beta_n:
+		ab[u,0] += 1
+	elif u_coeff: #the bvp has a zero order term
+		ab[u,:] += u_coeff*h**2
 	#Here we use Scipy's specialized solver for banded systems - this is faster than a generic sparse solver
 	#It does cause some indexing headaches, but is well worth it in terms of speed
 	sol = solve_banded([l,u],ab,b)
 	res[(1-alpha_n):dim+1-alpha_n] = sol
-	return dom, res
+	if return_system: return dom, res, banded_to_full([l,u],ab), b
+	else: return dom, res
+
+def banded_to_full(l_and_u, ab):
+	l,u = l_and_u
+	n = ab.shape[1]
+	diags = np.arange(-l,u+1)
+	arrs = [ab[u-d,max(d,0):min(n, n+d)] for d in diags]
+	return spdiags(arrs,diags, shape=(n,n)).toarray()
 
 def plot_table(cell_text, cols, title=""):
 	fig, ax = plt.subplots()

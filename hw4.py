@@ -69,9 +69,10 @@ def prob1_pseudospec(f,grid,alpha=1, beta=3, eps=1e-2):
 	return sol
 
 import matplotlib.pyplot as plt
+from simple_bvp import bvp
 
 if __name__ == "__main__":
-	f = lambda x: x-1 #Forcing function for problem 1
+	"""	f = lambda x: x-1 #Forcing function for problem 1
 	eps = 1e-2
 	u1 = lambda x: (1.-np.exp(x/eps))/(1-np.exp(1./eps)) * (3./2+eps) - 1./2*x**2 + (1-eps)*x + 1
 	for t in ['uniform','rtlayer','chebyshev']:
@@ -89,3 +90,20 @@ if __name__ == "__main__":
 		print make_table_data(u1, f, sol_func, list(range(25,60,5)))
 #	plt.legend()
 #	plt.show()
+	"""
+	#Forcing func for problem 2
+	f = lambda x: x
+	true_sol = lambda x: x**3/6.+ x
+	mvals = [40,60,20,160]
+	for m in mvals:
+		dom, sol = bvp(f, n=m, a=0,b=1, alpha=('N',1), beta=('N',3./2), order=2)
+		plt.plot(dom, sol, label = "{} intervals".format(m))
+	plt.plot(dom, true_sol(dom), label="Exact")
+	plt.legend()
+	plt.show()
+	for m in mvals:
+		dom, sol = bvp(f,n=m, a=0, b=1, alpha=('N',1), beta=('N',3./2), order=2, central=True)
+		plt.plot(dom, sol, label = "{} intervals".format(m))
+	plt.legend()
+	plt.show()
+
