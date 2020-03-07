@@ -15,14 +15,14 @@ def make_5_point_diags(n, h):
 
 def make_9_point_diags(n, h):
 	diags = {}
-	diags[0] = -20.
+	diags[0] = -20. * np.ones(n*n)
 	off_diag = 4*np.ones(n*n-1)
-	off_diag[n::n] = 0
+	off_diag[n-1::n] = 0
 	diags[-1] = diags[1] = off_diag
-	diags[-n] = diags[n] = 1.	
+	diags[-n] = diags[n] = 4*np.ones(n*(n-1))
 	off_diag1 = np.ones(n*n-n+1)
 	off_diag2 = np.ones(n*n-n-1)
-	off_diag2[n::n] = 0
+	off_diag2[n-1::n] = 0
 	off_diag1[0::n] = 0
 	diags[n-1] = diags[1-n] = off_diag1
 	diags[n+1] = diags[-1-n] = off_diag2
@@ -40,7 +40,9 @@ def solve_hemholtz(f, boundary_func=lambda x,y: x*y, lap_f=lambda x: None, n=20,
 		b[i] = f(xval, yvals)
 		if scheme == '9-point':
 			b[i] += h**2/12. * (lap_f(xval, yvals) - k**2*f(xval, yvals))
-	b *= h**2
+	if scheme == '5-point':
+		b *= h**2
+	else: b *= 6*h**2
 #	print b
 	if scheme=='5-point':
 		diags = make_5_point_diags(n, h)
@@ -53,7 +55,7 @@ def solve_hemholtz(f, boundary_func=lambda x,y: x*y, lap_f=lambda x: None, n=20,
 	
 	elif scheme=='9-point':
 		diags = make_9_point_diags(n, h)
-		diags[0] += (h*k)**2 - 1./12 (h*k)**4
+		diags[0] += 6 *((h*k)**2 - 1./12* (h*k)**4)
 		#This is like the 5-point stencil
 		b[0] -= 4*boundary_func(xint[0], yvals)
 		b[-1] -= 4*boundary_func(xint[1], yvals)
@@ -65,10 +67,10 @@ def solve_hemholtz(f, boundary_func=lambda x,y: x*y, lap_f=lambda x: None, n=20,
 		b[0] -= boundary_func(xint[0], vals[:-2]) + boundary_func(xint[0], vals[2:])
 		b[-1] -= boundary_func(xint[1], vals[:-2]) + boundary_func(xint[1], vals[2:])
 		#Handle the sides - be careful not to double count the corners
-		b[1:,0] -= boundary_func(vals[:-2], xint[0])
-		b[:-1,0] -= boundary_func(vals[:2], xint[0])
-		b[1:,-1] -= boundary_func(vals[:-2], xint[1])
-		b[:-1,-1] -= boundary_func(vals[:2], xint[1])
+		b[1:,0] -= boundary_func(vals[1:-2], xint[0])
+		b[:-1,0] -= boundary_func(vals[2:-1], xint[0])
+		b[1:,-1] -= boundary_func(vals[1:-2], xint[1])
+		b[:-1,-1] -= boundary_func(vals[2:-1], xint[1])
 
 	else:
 		raise ValueError("Unrecognized scheme {}".format(scheme))
@@ -77,8 +79,8 @@ def solve_hemholtz(f, boundary_func=lambda x,y: x*y, lap_f=lambda x: None, n=20,
 	print([(d, sum(diags[d]!=0)) for d in diags if isinstance(diags[d], np.ndarray)])
 	offsets = sorted(diags.keys())
 	mat = sparse_diags([diags[d] for d in offsets], offsets, format='csc')
+#	print mat.todense()
 	if solver == 'spdiags':
-#		print mat.todense()
 #		print b
 #		print mat.shape
 		return spsolve(mat, b.flatten())
@@ -114,11 +116,11 @@ def plot_sol(sol, grid):
 if __name__ == "__main__":
 	from scipy.special import jve #Bessel function
 	k = 20
-	xpoints = 250
+	xpoints = 300
 	f = lambda x,y: (k**2 -1) * (np.sin(y) + np.cos(x))
 	lap_f = lambda x,y: -f(x,y) 
 	true = lambda x,y: jve(0,k * (x**2+y**2)**.5) + np.sin(y) + np.cos(x)
-	res = solve_hemholtz(f,boundary_func=true, n=xpoints-1, lap_f=lap_f, scheme='5-point', k= k, solver=sla.spsolve)
+	res = solve_hemholtz(f,boundary_func=true, n=xpoints-1, lap_f=lap_f, scheme='9-point', k= k, solver=sla.spsolve)
 	if len(res) == 2: res = res[0]
 	grid = np.linspace(0,1,xpoints+1)
 	
@@ -130,5 +132,5 @@ if __name__ == "__main__":
 	sol[:,:] = true_sol
 	sol[1:-1, 1:-1] = res.reshape((xpoints-1, xpoints-1))
 	print "Max-norm error", l_inf_error(true_sol, sol)
-	#plot_sol(sol, grid)
-	#plot_sol(true_sol, grid)
+	plot_sol(sol, grid)
+	plot_sol(true_sol, grid)
