@@ -13,12 +13,13 @@ def exact_soln(r, theta, terms = 30, r0=1, k = 2*np.pi):
 		sln += eps* 1j**n * np.outer(jn(n,k*r0)/hankel1(n,k*r0)*hankel1(n,k*r), np.cos(n*theta))
 	return -sln
 
-def solve_acoustic(r0=1,R=2,PPW=30,k=2*np.pi, scheme='farfield1'):
+def solve_acoustic(r0=1,R=2,PPW=30,k=2*np.pi, scheme='farfield1', adjust_r = False):
 	theta_h = 2*np.pi/(PPW)
-	r_h = (R-r0)/float(PPW)
+	num_r = PPW if not adjust_r else int(3*R*PPW/k)
+	r_h = (R-r0)/float(num_r)
 	bcs = np.zeros(PPW, dtype=np.complex128)
 	thetas = np.linspace(0,2*np.pi,PPW+1)[:-1]
-	rs = np.linspace(r0,R,PPW+1)
+	rs = np.linspace(r0,R,num_r+1)
 	bcs[:] = -np.exp(1j*k*r0*np.cos(thetas))
 	#Convert coordinate to offset in array
 	conv = lambda i,j: i*PPW+j
@@ -28,7 +29,7 @@ def solve_acoustic(r0=1,R=2,PPW=30,k=2*np.pi, scheme='farfield1'):
 	#This gives us the coeffs for the equation a*U(R-2h, theta) + b*U(R-h,theta) - c * U(R, theta) = 0
 	#which is what the ABC from the farfield expansion boils down to
 	def populate_interior():
-		for i in xrange(PPW-1):
+		for i in xrange(num_r-1):
 			cur_r = rs[i+1]
 			for j in xrange(PPW):
 				#Add in the theta derivative
@@ -51,13 +52,13 @@ def solve_acoustic(r0=1,R=2,PPW=30,k=2*np.pi, scheme='farfield1'):
 		#So first we need to determine the number of unkowns
 		#This is going to be PPW * num distinct r
 		#If we have PPW-1 interior radial points, then we end up with PPW^2 unknowns, provided we use only one term in the farfield expansion
-		n = PPW**2
+		n = PPW*num_r
 		A = np.zeros((n,n), dtype=np.complex128)
 		b = np.zeros(n,dtype=np.complex128)
 		#Add discrete polar Laplacian
 		populate_interior()
 		#Now take care of the ABC (absorbing boundary condition)
-		i = PPW-1
+		i = num_r-1
 		for j in xrange(PPW):
 			pos = conv(i,j)
 			for k in xrange(len(coeffs)):
@@ -68,14 +69,14 @@ def solve_acoustic(r0=1,R=2,PPW=30,k=2*np.pi, scheme='farfield1'):
 		true_soln[PPW:] = solve(A,b)
 		return true_soln, rs, thetas
 	elif scheme == 'farfield2':
-		n = PPW*(PPW+1) #We handle the f's explicity
+		n = PPW*(num_r+1) #We handle the f's explicity
 		A = np.zeros((n,n), dtype=np.complex128)
 		b = np.zeros(n, dtype=np.complex128)
 		populate_interior()
 		c = np.exp(1j*k*R)/(k*R)**.5
 		#The ABC conditions are a bit trickier
 		#First add the continuity condition
-		i = PPW-1
+		i = num_r-1
 		for j in xrange(PPW):
 			#Because of the ABC conditions, the last interior derivative will involve f_0 and f_1! A real Gotcha!
 			#Fix them
@@ -94,15 +95,15 @@ def solve_acoustic(r0=1,R=2,PPW=30,k=2*np.pi, scheme='farfield1'):
 				A[pos, conv(i-l,j)] = coeffs[-1-l]
 		#Now take care of the relation 2i f_1 = f_0/4 + f_0''
 		for j in xrange(PPW):
-			pos = conv(PPW,j)
+			pos = conv(num_r,j)
 			A[pos,pos] = -2j
-			A[pos, conv(PPW-1,j)] = 1./4 - 2./theta_h**2
+			A[pos, conv(num_r-1,j)] = 1./4 - 2./theta_h**2
 			j_prev = (j-1+PPW) % PPW
 			j_next = (j+1) % PPW
-			A[pos, conv(PPW-1,j_prev)] = 1. / theta_h**2
-			A[pos, conv(PPW-1,j_next)] = 1. / theta_h**2
+			A[pos, conv(num_r-1,j_prev)] = 1. / theta_h**2
+			A[pos, conv(num_r-1,j_next)] = 1. / theta_h**2
 		
-		true_soln = np.zeros(PPW*(PPW+1), dtype = np.complex128)
+		true_soln = np.zeros(PPW*(num_r+1), dtype = np.complex128)
 		res = solve(A,b)
 		true_soln[:PPW] = bcs
 		true_soln[PPW:-PPW] = res[:-2*PPW]
@@ -114,7 +115,7 @@ def solve_acoustic(r0=1,R=2,PPW=30,k=2*np.pi, scheme='farfield1'):
 def polar_to_cartesian(rs, thetas):
 	return np.outer(rs, np.cos(thetas)), np.outer(rs, np.sin(thetas))
 
-
+"""
 PPW = 40
 R=2.
 k = 2*np.pi
@@ -138,4 +139,4 @@ plt.plot(thetas, np.abs(res[-PPW:]), label="Computed")
 plt.plot(thetas, np.abs(exact[-1]), label="Exact")
 plt.legend()
 plt.show()
-
+"""

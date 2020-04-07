@@ -92,7 +92,7 @@ def solve_hemholtz(f, boundary_func=lambda x,y: x*y, lap_f=lambda x: None, n=20,
 		raise ValueError("Unrecognized scheme {}".format(scheme))
 	
 	#Next, create the sparse matrix and solve the system
-	print([(d, sum(diags[d]!=0)) for d in diags if isinstance(diags[d], np.ndarray)])
+#	print([(d, sum(diags[d]!=0)) for d in diags if isinstance(diags[d], np.ndarray)])
 	offsets = sorted(diags.keys())
 	mat = sparse_diags([diags[d] for d in offsets], offsets, format='csc')
 #	print mat.todense()
